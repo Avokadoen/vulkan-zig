@@ -1,9 +1,5 @@
-// See https://www.khronos.org/registry/spir-v/specs/unified1/MachineReadableGrammar.html
-
-pub const Registry = union(enum) {
-    core: CoreRegistry,
-    extension: ExtensionRegistry,
-};
+//! See https://www.khronos.org/registry/spir-v/specs/unified1/MachineReadableGrammar.html
+//! and the files in https://github.com/KhronosGroup/SPIRV-Headers/blob/master/include/spirv/unified1/
 
 pub const CoreRegistry = struct {
     copyright: [][]const u8,
@@ -31,6 +27,8 @@ pub const InstructionPrintingClass = struct {
 
 pub const Instruction = struct {
     opname: []const u8,
+
+    /// Note: Only available in the core registry.
     class: ?[]const u8 = null,
     opcode: u32,
     operands: []Operand = &[_]Operand{},
@@ -38,7 +36,7 @@ pub const Instruction = struct {
     extensions: [][]const u8 = &[_][]const u8{},
     version: ?[]const u8 = null,
 
-    // Note: non-canonical casing to match Spir-V JSON spec
+    /// Note: non-canonical casing to match Spir-V JSON spec
     lastVersion: ?[]const u8 = null,
 };
 
@@ -46,8 +44,7 @@ pub const Operand = struct {
     kind: []const u8,
 
     /// If this field is 'null', the operand is only expected once.
-    // quantifier: ?Quantifier = null,
-    quantifier: ?[]const u8 = null,
+    quantifier: ?Quantifier = null,
     name: []const u8 = "",
 };
 
@@ -70,6 +67,8 @@ pub const OperandCategory = enum {
 
 pub const OperandKind = struct {
     category: OperandCategory,
+
+    /// The name
     kind: []const u8,
     doc: []const u8 = "",
     enumerants: ?[]Enumerant = null,
