@@ -17,6 +17,13 @@ const tags = [_][]const u8{
     "NV",
 };
 
+pub fn parseHex(text: []const u8) !u31 {
+    const prefix = "0x";
+    if (!mem.startsWith(u8, text, prefix))
+        return error.InvalidHexInt;
+    return try std.fmt.parseInt(u31, text[prefix.len ..], 16);
+}
+
 fn Renderer(comptime WriterType: type) type {
     return struct {
         const Self = @This();
@@ -82,17 +89,16 @@ fn Renderer(comptime WriterType: type) type {
         }
 
         fn renderValueEnum(self: *Self, value_enum: *const reg.OperandKind) !void {
-            // TODO: Filter out duplicates
             try self.writer.writeAll("pub const ");
             try self.id_renderer.renderWithCase(self.writer, .title, value_enum.kind);
             try self.writer.writeAll(" = extern enum {\n");
 
             const enumerants = value_enum.enumerants orelse return error.InvalidRegistry;
-            for (enumerants) |field| {
-                if (field.value != .int) return error.InvalidRegistry;
+            for (enumerants) |enumerant| {
+                if (enumerant.value != .int) return error.InvalidRegistry;
 
-                try self.id_renderer.renderWithCase(self.writer, .snake, field.enumerant);
-                try self.writer.print(" = {},\n", .{ field.value.int });
+                try self.id_renderer.renderWithCase(self.writer, .snake, enumerant.enumerant);
+                try self.writer.print(" = {},\n", .{ enumerant.value.int });
             }
 
             try self.writer.writeAll("};\n");
