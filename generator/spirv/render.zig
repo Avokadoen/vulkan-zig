@@ -17,7 +17,14 @@ const tags = [_][]const u8{
     "NV",
 };
 
-pub fn parseHex(text: []const u8) !u31 {
+fn getEnumerantValue(enumerant: *const reg.Enumerant) !u31 {
+    return switch (enumerant.value) {
+        .bitflag => |str| try parseHexInt(str),
+        .int => |int| int
+    };
+}
+
+fn parseHexInt(text: []const u8) !u31 {
     const prefix = "0x";
     if (!mem.startsWith(u8, text, prefix))
         return error.InvalidHexInt;
@@ -30,15 +37,18 @@ fn Renderer(comptime WriterType: type) type {
 
         writer: WriterType,
         id_renderer: IdRenderer,
+        non_aliased_enum_cache: std.AutoHashMap(u32, []const u8),
 
         fn init(allocator: *Allocator, writer: WriterType) Self {
             return .{
                 .writer = writer,
                 .id_renderer = IdRenderer.init(allocator, &tags),
+                .non_aliased_enum_cache = std.AutoHashMap(u32, []const u8).init(allocator),
             };
         }
 
-        fn deinit(self: Self) void {
+        fn deinit(self: *Self) void {
+            self.non_aliased_enum_cache.deinit();
             self.id_renderer.deinit();
         }
 
@@ -88,20 +98,36 @@ fn Renderer(comptime WriterType: type) type {
             }
         }
 
-        fn renderValueEnum(self: *Self, value_enum: *const reg.OperandKind) !void {
+        fn renderValueEnum(self: *Self, enumeration: *const reg.OperandKind) !void {
             try self.writer.writeAll("pub const ");
-            try self.id_renderer.renderWithCase(self.writer, .title, value_enum.kind);
-            try self.writer.writeAll(" = extern enum {\n");
+            try self.id_renderer.renderWithCase(self.writer, .title, enumeration.kind);
+            try self.writer.writeAll(" = extern enum(u32) {\n");
 
-            const enumerants = value_enum.enumerants orelse return error.InvalidRegistry;
+            const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
             for (enumerants) |enumerant| {
                 if (enumerant.value != .int) return error.InvalidRegistry;
 
                 try self.id_renderer.renderWithCase(self.writer, .snake, enumerant.enumerant);
-                try self.writer.print(" = {},\n", .{ enumerant.value.int });
+                try self.writer.print(" = {}, ", .{ enumerant.value.int });
             }
 
-            try self.writer.writeAll("};\n");
+            try self.writer.writeAll("_,};\n");
+        }
+
+        // Fills self.non_aliased_enum_cache
+        fn extractNonAliasedEnumerants(self: *Self, enumerants: []const reg.Enumerant) !void {
+            self.non_aliased_enum_cache.clearRetainingCapacity();
+            for (enumerants) |enumerant| {
+                const value = try getEnumerantValue(&enumerant);
+                const result = try self.non_aliased_enum_cache.getOrPut(value);
+
+                // If a hit was found, keep the one with the shortest length. This is likely
+                // to not contain any tag, and should be the easiest to type in general if
+                // those kinds of aliases even exist.
+                if (!result.found_existing and enumerant.enumerant.len < result.entry.value.len) {
+                    result.entry.value = enumerant.enumerant;
+                }
+            }
         }
     };
 }
