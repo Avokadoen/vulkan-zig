@@ -4,6 +4,11 @@ const mem = std.mem;
 const IdRenderer = @import("../id_render.zig").IdRenderer;
 const Allocator = std.mem.Allocator;
 
+const preamble =
+    \\const Version = @import("builtin").Version;
+    \\
+    ;
+
 // The SPIR-V spec doesn't contain any tag information like vulkan.xml does,
 // so the tags are just hardcoded. They are retrieved from
 // https://github.com/KhronosGroup/SPIRV-Registry/tree/master/extensions
@@ -37,29 +42,37 @@ fn Renderer(comptime WriterType: type) type {
 
         writer: WriterType,
         id_renderer: IdRenderer,
-        non_aliased_enum_cache: std.AutoHashMap(u32, []const u8),
 
         fn init(allocator: *Allocator, writer: WriterType) Self {
             return .{
                 .writer = writer,
                 .id_renderer = IdRenderer.init(allocator, &tags),
-                .non_aliased_enum_cache = std.AutoHashMap(u32, []const u8).init(allocator),
             };
         }
 
-        fn deinit(self: *Self) void {
-            self.non_aliased_enum_cache.deinit();
+        fn deinit(self: Self) void {
             self.id_renderer.deinit();
         }
 
         fn renderCore(self: *Self, registry: *const reg.CoreRegistry) !void {
             try self.renderCopyright(registry.copyright);
+            try self.writer.writeAll(preamble);
+            try self.writer.print("pub const magic_number: u32 = {s};\n", .{ registry.magic_number });
+            try self.writer.print(
+                "pub const version = Version{{.major = {}, .minor = {}, .patch = {}}};\n",
+                .{ registry.major_version, registry.minor_version, registry.revision },
+            );
             try self.renderOpcodes(registry.instructions, true);
             try self.renderOperandKinds(registry.operand_kinds);
         }
 
         fn renderExstinst(self: *Self, registry: *const reg.ExtensionRegistry) !void {
             try self.renderCopyright(registry.copyright);
+            try self.writer.writeAll(preamble);
+            try self.writer.print(
+                "pub const version = Version{{.major = {}, .minor = 0, .patch = {}}};\n",
+                .{ registry.version, registry.revision },
+            );
             try self.renderOpcodes(registry.instructions, false);
             try self.renderOperandKinds(registry.operand_kinds);
         }
@@ -94,6 +107,7 @@ fn Renderer(comptime WriterType: type) type {
         fn renderOperandKind(self: *Self, operand_kind: *const reg.OperandKind) !void {
             switch (operand_kind.category) {
                 .ValueEnum => try self.renderValueEnum(operand_kind),
+                .BitEnum => try self.renderBitEnum(operand_kind),
                 else => {},
             }
         }
@@ -114,20 +128,45 @@ fn Renderer(comptime WriterType: type) type {
             try self.writer.writeAll("_,};\n");
         }
 
-        // Fills self.non_aliased_enum_cache
-        fn extractNonAliasedEnumerants(self: *Self, enumerants: []const reg.Enumerant) !void {
-            self.non_aliased_enum_cache.clearRetainingCapacity();
-            for (enumerants) |enumerant| {
-                const value = try getEnumerantValue(&enumerant);
-                const result = try self.non_aliased_enum_cache.getOrPut(value);
+        fn renderBitEnum(self: *Self, enumeration: *const reg.OperandKind) !void {
+            try self.writer.writeAll("pub const ");
+            try self.id_renderer.renderWithCase(self.writer, .title, enumeration.kind);
+            try self.writer.writeAll(" = packed struct {\n");
 
-                // If a hit was found, keep the one with the shortest length. This is likely
-                // to not contain any tag, and should be the easiest to type in general if
-                // those kinds of aliases even exist.
-                if (!result.found_existing and enumerant.enumerant.len < result.entry.value.len) {
-                    result.entry.value = enumerant.enumerant;
+            var flags_by_bitpos = [_]?[]const u8{null} ** 32;
+            const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
+            for (enumerants) |enumerant| {
+                if (enumerant.value != .bitflag) return error.InvalidRegistry;
+                const value = try parseHexInt(enumerant.value.bitflag);
+                if (@popCount(u32, value) != 1) {
+                    continue; // Skip combinations and 'none' items
+                }
+
+                var bitpos = std.math.log2_int(u32, value);
+                if (flags_by_bitpos[bitpos]) |*existing|{
+                    // Keep the shortest
+                    if (enumerant.enumerant.len < existing.len)
+                        existing.* = enumerant.enumerant;
+                } else {
+                    flags_by_bitpos[bitpos] = enumerant.enumerant;
                 }
             }
+
+            for (flags_by_bitpos) |maybe_flag_name, bitpos| {
+                if (maybe_flag_name) |flag_name| {
+                    try self.id_renderer.renderWithCase(self.writer, .snake, flag_name);
+                } else {
+                    try self.writer.print("_reserved_bit_{}", .{bitpos});
+                }
+
+                try self.writer.writeAll(": bool ");
+                if (bitpos == 0) { // Force alignment to integer boundaries
+                    try self.writer.writeAll("align(@alignOf(u32)) ");
+                }
+                try self.writer.writeAll("= false, ");
+            }
+
+            try self.writer.writeAll("};\n");
         }
     };
 }

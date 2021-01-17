@@ -70,7 +70,7 @@ pub const OperandKind = struct {
 
     /// The name
     kind: []const u8,
-    doc: []const u8 = "",
+    doc: ?[]const u8 = null,
     enumerants: ?[]Enumerant = null,
     bases: ?[]const []const u8 = null,
 };
@@ -82,7 +82,7 @@ pub const Enumerant = struct {
         int: u31,
     },
     capabilities: [][]const u8 = &[_][]const u8{},
-    extensions: [][]const u8 = &[_][]const u8{}, // Valid for .ValueEnum
+    extensions: [][]const u8 = &[_][]const u8{}, // Valid for .ValueEnum and .BitEnum
     parameters: []Operand = &[_]Operand{}, // `quantifier` will always be `null`.
     version: ?[]const u8 = null,
 
