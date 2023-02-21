@@ -103,7 +103,7 @@ pub const Generator = struct {
         const result = try parseXml(allocator, spec);
 
         const tags = try allocator.alloc([]const u8, result.registry.tags.len);
-        for (tags) |*tag, i| tag.* = result.registry.tags[i].name;
+        for (tags, 0..) |*tag, i| tag.* = result.registry.tags[i].name;
 
         return Generator{
             .arena = result.arena,

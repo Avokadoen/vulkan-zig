@@ -300,7 +300,7 @@ fn parsePointerMeta(fields: Fields, type_info: *registry.TypeInfo, elem: *xml.El
                 const size_optional = lenToPointer(fields, len_str);
                 current_type_info.pointer.is_optional = size_optional[1];
                 break :blk size_optional[0];
-            }  else .many;
+            } else .many;
             current_type_info.pointer.size = size;
             current_type_info = current_type_info.pointer.child;
         }
